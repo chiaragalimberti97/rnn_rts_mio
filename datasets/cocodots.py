@@ -27,12 +27,16 @@ class CocoDots(Dataset):
     def read_anns(self, file, shuffle, subset):
         with open(file, 'rb') as f:
             data = json.load(f)
-
+        
         serrelab_anns = data["serrelab_anns"]
+        '''
         if subset != 1:
             pos = [x for x in serrelab_anns if x["same"]==1]
             neg = [x for x in serrelab_anns if x["same"]==0]
             serrelab_anns = random.sample(pos, int(subset*len(pos))) + random.sample(neg, int(subset*len(neg)))
+        '''
+        if subset != 1:
+            serrelab_anns = random.sample(serrelab_anns, int(subset*len(serrelab_anns)))
 
         if shuffle:
             random.shuffle(serrelab_anns)
@@ -76,6 +80,7 @@ class CocoDots(Dataset):
         self.cats = cats
 
     def __len__(self):
+        print(f"Len dataset {len(self.data["serrelab_anns"])}")
         return len(self.data["serrelab_anns"])
 
     def __getitem__(self, idx):
@@ -83,7 +88,7 @@ class CocoDots(Dataset):
             # Get image and annotations
             serrelab_ann = self.data["serrelab_anns"][idx]
             img_data = self.imgs[serrelab_ann["image_id"]]
-            ann = self.img_to_anns[serrelab_ann["image_id"]]
+            #ann = self.img_to_anns[serrelab_ann["image_id"]]
             img = Image.open(os.path.join(self.img_dir, img_data["file_name"])).convert('RGB')
             img = np.array(img)
 
@@ -99,8 +104,8 @@ class CocoDots(Dataset):
             dots_h_factor = self.size[0] / dots_height  # factors to rescale dot coordinates
             dots_w_factor = self.size[1] / dots_width
 
-            h_factor = self.size[0] / img_data['height']  # factors to rescale image
-            w_factor = self.size[1] / img_data['width']
+            #h_factor = self.size[0] / img_data['height']  # factors to rescale image
+            #w_factor = self.size[1] / img_data['width']
 
             # Find resized dot locations
             serrelab_ann_resize = copy.deepcopy(serrelab_ann)
@@ -108,13 +113,13 @@ class CocoDots(Dataset):
                                              round(serrelab_ann_resize["cue_xy"][1] * dots_h_factor)]
             serrelab_ann_resize["fixation_xy"] = [round(serrelab_ann_resize["fixation_xy"][0] * dots_w_factor),
                                                   round(serrelab_ann_resize["fixation_xy"][1] * dots_h_factor)]
-
+            '''
             # Convert to an outline stimulus (only draw outlines for 'things')
             things = [segm for segm in ann["segments_info"] if self.cats[segm["category_id"]]["isthing"] == 1]
             thickness = int(1 / min(h_factor, w_factor))
             segm_contours = [segm["contours_LG"] for segm in things]
             img = make_stimulus(img, segm_contours, thickness=thickness, condition=self.stimulus_condition)
-
+            '''
             # Resize image to desired size
             img = Image.fromarray(img).resize((self.size[1], self.size[0]))  # PIL wants w,h
             img = np.array(img)

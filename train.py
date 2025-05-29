@@ -57,7 +57,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Saving
 results_folder = 'results/{0}/'.format(args.name)
-os.makedirs(results_folder, exist_ok=False)
+os.makedirs(results_folder, exist_ok=True) #changed form false to true
 with open(os.path.join(results_folder, 'opts.json'), 'w') as f:
     opts = vars(args)
     opts['num_gpus'] = torch.cuda.device_count()
