@@ -7,7 +7,7 @@ from .dataset_str_mapping import MAPPING
 
 def setup_dataset(dataset_str, data_root, subset, shuffle, **kwargs):
 
-    if dataset_str  in ['cocodots_train', 'cocodots_train_light', 'cocodots_val', 'cocodots_val_mini']:
+    if dataset_str  in ['cocodots_train', 'cocodots_train_light', 'cocodots_val', 'cocodots_val_mini', 'cocodots_train_flexmm', 'cocodots_val_flexmm']:
         h = kwargs.get('base_size', 150)  # input image height
         w = kwargs.get('base_size', 150)  # input image width
         dataset = CocoDots(MAPPING[dataset_str],
@@ -15,7 +15,9 @@ def setup_dataset(dataset_str, data_root, subset, shuffle, **kwargs):
                                         {'cocodots_train': 'train2017',
                                          'cocodots_train_light': 'train2017',
                                          'cocodots_val': 'val2017',
-                                         'cocodots_val_mini': 'val2017_mini'}[dataset_str]),
+                                         'cocodots_val_mini': 'val2017_mini',
+                                         'cocodots_train_flexmm': 'Overlapping_patches',
+                                         'cocodots_val_flexmm': 'Overlapping_patches'}[dataset_str]),
                            size=(h, w),
                            subset=subset,
                            shuffle=shuffle)
