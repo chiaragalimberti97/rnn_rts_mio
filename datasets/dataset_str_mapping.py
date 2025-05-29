@@ -8,5 +8,8 @@ MAPPING = {
     'cocodots_val': './data/coco_dots_0_0_val2017.json',
     'cocodots_val_mini': './data/coco_dots_0_0_val2017_mini.json',
     'mazes_train': './data/mazes_train.json',
-    'mazes_val': './data/mazes_val.json'
+    'mazes_val': './data/mazes_val.json',
+    'cocodots_train_flexmm': './data/cocodots_train_flexmm.json',
+    'cocodots_val_flexmm': './data/cocodots_val_flexmm.json',
+
 }
