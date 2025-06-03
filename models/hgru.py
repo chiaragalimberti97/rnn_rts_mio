@@ -3,7 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Function
 from torch.nn import init
-from torchvision import models as vggmodels
+from torchvision.models import vgg19
+from sklearn.decomposition import PCA
 
 
 class dummyhgru(Function):
@@ -266,3 +267,188 @@ class hGRU(nn.Module):
         return_dict.update({'output': output, 'jv_penalty': jv_penalty, 'loss': loss})
 
         return return_dict
+
+
+
+
+
+
+
+# HGRU WITH VGG19
+#===============================================================================
+
+
+class hGRU_VGG19(nn.Module):
+
+    """
+    Made several changes from:
+    https://github.com/c-rbp/pathfinder_experiments/blob/main/models/hgrucleanSEG.py
+
+    The original hGRU architecture was introduced in:
+
+    Linsley, D., Kim, J., Veerabadran, V., Windolf, C., & Serre, T. (2018). Learning long-range spatial dependencies
+    with horizontal gated recurrent units. In S. Bengio, H. Wallach, H. Larochelle, K. Grauman, N. Cesa-Bianchi,
+    & R. Garnett (Eds.), Advances in Neural Information Processing Systems (Vol. 31). Curran Associates,
+    Inc. https://proceedings.neurips.cc/paper_files/paper/2018/file/ec8956637a99787bd197eacd77acce5e-Paper.pdf
+
+    """
+
+    def __init__(self, num_channels = 25, timesteps=8, filt_size=15, num_iter=50, exp_name='exp1', jacobian_penalty=False,
+                 grad_method='bptt', activ='softplus', xavier_gain=1.0, n_in=4, n_classes=2):
+        super(hGRU_VGG19, self).__init__()
+        self.timesteps = timesteps
+        self.num_iter = num_iter
+        self.exp_name = exp_name
+        self.jacobian_penalty = jacobian_penalty
+        self.grad_method = grad_method
+        self.activ = activ
+        self.xavier_gain = xavier_gain
+        self.num_channels = num_channels  # number of channels in hidden states
+        self.n_in = n_in   # number of input channels
+        self.n_classes = n_classes  # number of classes to predict
+
+        self.conv0 = nn.Conv2d(n_in, self.num_channels, kernel_size=7, padding=3)
+        self.unit1 = hgruCell(self.num_channels, self.num_channels, filt_size, activ=self.activ)
+        print("Training with filter size:", filt_size, "x", filt_size)
+        self.bn = nn.BatchNorm2d(2, eps=1e-03)
+        self.conv6 = nn.Conv2d(self.num_channels, self.n_classes, kernel_size=1)
+        init.xavier_normal_(self.conv6.weight)
+        init.constant_(self.conv6.bias, torch.log(torch.tensor((1 - 0.01) / 0.01)))
+        
+        # VGG19 
+        self.vgg19 = vgg19(pretrained=True).features[:2]  # solo il primo Conv2d + ReLU
+        for param in self.vgg19.parameters():
+            param.requires_grad = False  # congelalo se non vuoi backprop
+
+        # PCA
+        self.pca = PCA(n_components=self.num_channels)  # es: 25 componenti
+        
+        
+
+        # For classification
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Linear(self.n_classes, self.n_classes)
+        init.xavier_normal_(self.fc.weight)
+        init.constant_(self.fc.bias, 0)
+
+    def readout(self, x, x_dots):
+        output = self.conv6(x)
+        output = self.bn(output)
+        output = self.avgpool(output)
+        output = output.view(output.size(0), -1)
+        output = self.fc(output)
+        output = F.log_softmax(output, dim=1)  # <--- for KLDivLoss
+        return output
+
+    def forward(self, x, epoch, itr, target=None, criterion=None,
+                testmode=False):
+        
+        x_rgb = x[:, :, :, :3]      
+        x_dots = x[:, :, :, 3]    
+        x = x_rgb 
+
+        # vgg19 plus pca
+        with torch.no_grad():
+            x = self.vgg19(x)  # shape: [B, C, H, W] (es: [1, 64, 256, 256])
+
+        # Applica PCA **per pixel**
+        B, C, H, W = x.shape
+        x_flat = x.permute(0, 2, 3, 1).reshape(-1, C)  # shape: [B*H*W, C]
+
+        # Fit solo se non ancora fatto (evita su test mode o riutilizza fit)
+        if not hasattr(self, 'pca_fitted'):
+            _ = self.pca.fit(x_flat.pcu().numpy())
+            self.pca_fitted = True
+
+        x_pca = self.pca.transform(x_flat.cpu().numpy())  # shape: [B*H*W, num_channels]
+        x_pca = torch.tensor(x_pca, device=x.device).reshape(B, H, W, self.num_channels)
+        x = x_pca.permute(0, 3, 1, 2)  # torna a [B, num_channels, H, W]
+
+
+
+
+        internal_state = torch.zeros_like(x, requires_grad=False)
+        internal_state = torch.nn.init.xavier_normal_(internal_state, gain=self.xavier_gain)
+
+        states = []
+        if self.grad_method == 'rbp':
+            with torch.no_grad():
+                for i in range(self.timesteps - 1):
+                    if testmode: states.append(internal_state)
+                    internal_state, g2t = self.unit1(x, internal_state, timestep=i)
+            if testmode: states.append(internal_state)
+            state_2nd_last = internal_state.detach().requires_grad_()
+            i += 1
+            last_state, g2t = self.unit1(x, state_2nd_last, timestep=i)
+            internal_state = dummyhgru.apply(state_2nd_last, last_state, epoch, itr, self.exp_name, self.num_iter)
+            if testmode: states.append(internal_state)
+
+        elif self.grad_method == 'bptt':
+            for i in range(self.timesteps):
+                if testmode: states.append(internal_state)
+                internal_state, g2t = self.unit1(x, internal_state, timestep=i)
+                if i == self.timesteps - 2:
+                    state_2nd_last = internal_state
+                elif i == self.timesteps - 1:
+                    last_state = internal_state
+            if testmode: states.append(internal_state)
+        # internal_state = torch.tanh(internal_state)
+        output = self.readout(internal_state)           
+        
+
+
+        if not testmode:
+            target = target.unsqueeze(1)  # for KL
+            target = torch.cat([target, 1 - target], dim=1)  # for KL
+            loss = criterion(output, target)
+
+        pen_type = 'l1'
+        jv_penalty = torch.tensor([1]).float().cuda()
+        mu = 0.9
+        double_neg = False
+        if self.training and self.jacobian_penalty:
+            if pen_type == 'l1':
+                norm_1_vect = torch.ones_like(last_state)
+                norm_1_vect.requires_grad = False
+                jv_prod = torch.autograd.grad(last_state, state_2nd_last, grad_outputs=[norm_1_vect], retain_graph=True,
+                                              create_graph=self.jacobian_penalty, allow_unused=True)[0]
+                jv_penalty = (jv_prod - mu).clamp(0) ** 2
+                if double_neg is True:
+                    neg_norm_1_vect = -1 * norm_1_vect.clone()
+                    jv_prod = \
+                    torch.autograd.grad(last_state, state_2nd_last, grad_outputs=[neg_norm_1_vect], retain_graph=True,
+                                        create_graph=True, allow_unused=True)[0]
+                    jv_penalty2 = (jv_prod - mu).clamp(0) ** 2
+                    jv_penalty = jv_penalty + jv_penalty2
+            elif pen_type == 'idloss':
+                norm_1_vect = torch.rand_like(last_state).requires_grad_()
+                jv_prod = torch.autograd.grad(last_state, state_2nd_last, grad_outputs=[norm_1_vect], retain_graph=True,
+                                              create_graph=True, allow_unused=True)[0]
+                jv_penalty = (jv_prod - norm_1_vect) ** 2
+                jv_penalty = jv_penalty.mean()
+                if torch.isnan(jv_penalty).sum() > 0:
+                    raise ValueError('Nan encountered in penalty')
+        if testmode: return {'output': output, 'states': states}  # [LG] not returning loss when testmode=True cause we won't always have target
+
+        return_dict = {}
+        if type(loss) == tuple:
+            assert (type(loss[1]) == dict)
+            return_dict.update(loss[1])
+            loss = loss[0]
+        return_dict.update({'output': output, 'jv_penalty': jv_penalty, 'loss': loss})
+
+        return return_dict
+
+
+
+# FUNCTION FOR VGG19 EXTRACTION
+#==================================================================
+
+# Get deep features from <model> as applied to <im_torch>
+def get_conv2d_features(model, im_torch):
+    deep_features = []
+    for i in range(1, len(model) + 1):
+        if isinstance(model[:i][-1], nn.Conv2d):
+            deep_features.append(model[:i](im_torch).detach().numpy()[0])
+
+    return np.array(deep_features, dtype=object)
