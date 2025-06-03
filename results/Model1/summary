@@ -1,0 +1,4 @@
+Model1 was the first version of the HGRU model applied to natural images, the dataset was created from the natural image by augmenting them trough 9 patches and 4 rotations each so achieving a total of 112 * 9 * 4 images. 
+Each image was then paired 125 differents dot pairs and the label was calculated trough the output of the flexxmm model and the consequent dot product between the two dot positions resulted in the probability of being in the same segment.
+
+The natural modifification of the initial models where the loss (KL instead of EDL) and fewer modification just to fix it to the task. The results where not satisfiyng but ,ay be found in the same directory

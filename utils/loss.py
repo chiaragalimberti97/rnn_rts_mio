@@ -70,6 +70,8 @@ class EDLLoss(nn.Module):
         return kl
 
     def forward(self, logits, target, global_step, annealing_step):
+    
+    	
         target = F.one_hot(target, num_classes=self.num_classes)
 
         evidence, u, prob, alpha = get_edl_vars(logits, num_classes=self.num_classes, evidence_fn=self.evidence_fn)

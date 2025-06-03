@@ -1,0 +1,1 @@
+python train.py cocodots_train_flexmm cocodots_val_flexmm --batch_size 32 --data_root ./data/coco --name mymodel --model hgru --kernel_size 5 --timesteps 4 --loss_fn KL --annealing_step 16 --algo rbp --penalty --penalty_gamma 100 --epochs 10

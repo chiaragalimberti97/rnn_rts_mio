@@ -53,12 +53,16 @@ def get_su_values(img, model, fixation_x, fixation_y, device, step_size=5, batch
             states = output_dict['states']  # hidden states per time step
             T = len(states)  # number of timesteps (including h0)
             outputs = [model.readout(x) for x in states]  # need to apply the readout still
+            
+            ##modifica per tornare all originale scommenta ed elimina return outputs
 
             num_classes = outputs[0].shape[-1]
-            uncertainties = [get_edl_vars(x, num_classes=num_classes)[1].detach().cpu().numpy() for x in
-                             outputs]  # compute uncertainties from model outputs
+
+            uncertainties = [get_edl_vars(x, num_classes=num_classes)[1].detach().cpu().numpy() for x in outputs]  # compute uncertainties from model outputs
             uncertainties = np.stack(uncertainties, axis=1).squeeze(axis=2)
 
             u_all.append(uncertainties)
 
+
     return np.concatenate(u_all, axis=0), cue_x, cue_y
+

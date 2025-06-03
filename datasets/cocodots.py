@@ -80,7 +80,7 @@ class CocoDots(Dataset):
         self.cats = cats
 
     def __len__(self):
-        print(f"Len dataset {len(self.data["serrelab_anns"])}")
+        #print(f"Len dataset {len(self.data["serrelab_anns"])}")
         return len(self.data["serrelab_anns"])
 
     def __getitem__(self, idx):

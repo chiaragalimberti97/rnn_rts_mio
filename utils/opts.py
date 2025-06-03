@@ -39,7 +39,7 @@ parser.add_argument('--penalty', default=False, action='store_true',
                     help='whether to apply the jacobian penalty')
 parser.add_argument('--penalty_gamma', type=float, default=1e1,
                     help='importance of the jacobian penalty')
-parser.add_argument('--loss_fn', default='cross_entropy', type=str, choices=['cross_entropy', 'EDL'],
+parser.add_argument('--loss_fn', default='cross_entropy', type=str, choices=['cross_entropy', 'EDL', 'KL'],
                     help='classficiation loss function to use')
 parser.add_argument('--annealing_step', default=10.0, type=float,
                     help='annealing_step = args.annealing_step * len(trainloader); annealing_coef = float('
