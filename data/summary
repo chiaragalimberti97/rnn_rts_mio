@@ -1,0 +1,4 @@
+dot_dataset_float3 = 3 seg continuos label = F3_train and F3_val
+dot_datset_floatn = var seg continuos label = FN_train and FN_val
+dot_dataset_binary = var seg binary label =
+dot_dataset_balnced_binary = var seg binary labels balanced labels =
