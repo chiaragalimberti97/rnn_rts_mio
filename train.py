@@ -42,6 +42,7 @@ if args.loss_fn == 'KL' and args.model != 'hgru_vgg19' :
 elif args.loss_fn != 'KL' and args.model == 'hgru_vgg19':
     raise ValueError("HGru_VGG19 works only with KL loss")
 
+
 # Wandb
 if args.wandb:
     if args.wandb_project is None or args.wandb_entity is None:
@@ -65,13 +66,20 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 # Saving
 results_folder = 'results/{0}/'.format(args.name)
-os.makedirs(results_folder, exist_ok=True) #changed form false to true
+os.makedirs(results_folder, exist_ok=True) 
 with open(os.path.join(results_folder, 'opts.json'), 'w') as f:
     opts = vars(args)
     opts['num_gpus'] = torch.cuda.device_count()
     if args.wandb:
         opts["wandb_id"] = wandb.run.id
     json.dump(opts, f)
+
+
+
+
+
+
+
 
 # Logging
 exp_logging = args.log
@@ -127,7 +135,7 @@ if args.loss_fn == 'cross_entropy':
     criterion = CrossEntropyLoss(reduction='none').to(device)
 
 elif args.loss_fn == 'EDL':
-    edl = EDLLoss(num_classes=args.n_classes).to(device)
+    edl = EDLLoss(num_classes=args.n_classes, KL_elimination=args.Eliminate_KL_uniform).to(device)
 
 elif args.loss_fn == 'KL':
     criterion = KLDivLoss(reduction="batchmean")
@@ -436,7 +444,7 @@ for epoch in range(args.start_epoch, args.epochs):
                         'train_u_fail': u_fail.val
                     })
                 wandb_dict.update(
-                    {k: v for k, v in optimizer.state_dict()['param_groups'][0].items() if k is not 'params'})
+                    {k: v for k, v in optimizer.state_dict()['param_groups'][0].items() if k != 'params'})
                 wandb.log(wandb_dict, step=global_step)
 
             del output_dict

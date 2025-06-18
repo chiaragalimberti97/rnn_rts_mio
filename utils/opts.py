@@ -31,6 +31,7 @@ parser.add_argument('--n_in', type=int, default=4,
                     help='number of input channels')
 parser.add_argument('--n_classes', type=int, default=2,
                     help='number of classes')
+parser.add_argument('--Eliminate_KL_uniform', default=False, action='store_true')
 
 # ========================= Training algo, loss ==========================
 parser.add_argument('--algo', type=str, default="bptt", choices=['bptt', 'rbp'],

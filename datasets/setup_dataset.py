@@ -7,7 +7,7 @@ from .dataset_str_mapping import MAPPING
 
 def setup_dataset(dataset_str, data_root, subset, shuffle, **kwargs):
 
-    if dataset_str  in ['cocodots_train', 'cocodots_train_light', 'cocodots_val', 'cocodots_val_mini', 'cocodots_train_flexmm', 'cocodots_val_flexmm']:
+    if dataset_str  in ['cocodots_train', 'cocodots_train_light', 'cocodots_val', 'cocodots_val_mini', 'F3_train', 'F3_val', 'FN_train', 'FN_val','BN_train', 'BN_val',  'BN_bal_train', 'BN_bal_val']:
         h = kwargs.get('base_size', 150)  # input image height
         w = kwargs.get('base_size', 150)  # input image width
         dataset = CocoDots(MAPPING[dataset_str],
@@ -16,8 +16,15 @@ def setup_dataset(dataset_str, data_root, subset, shuffle, **kwargs):
                                          'cocodots_train_light': 'train2017',
                                          'cocodots_val': 'val2017',
                                          'cocodots_val_mini': 'val2017_mini',
-                                         'cocodots_train_flexmm': 'Overlapping_patches',
-                                         'cocodots_val_flexmm': 'Overlapping_patches'}[dataset_str]),
+                                         'F3_train': 'Overlapping_patches',
+                                         'F3_val': 'Overlapping_patches',
+                                         'FN_train': 'Overlapping_patches',
+                                         'FN_val': 'Overlapping_patches',
+                                         'BN_train': 'Overlapping_patches',
+                                         'BN_val': 'Overlapping_patches',
+                                         'BN_bal_train': 'Overlapping_patches',
+                                         'BN_bal_val': 'Overlapping_patches',
+                                         }[dataset_str]),
                            size=(h, w),
                            subset=subset,
                            shuffle=shuffle)

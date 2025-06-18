@@ -85,13 +85,13 @@ print(f"Len train dataset: {len(train_set)}   Len validation dataset: {len(val_s
 train_loader = DataLoader(train_set,
                           batch_size=args.batch_size,
                           shuffle=True,
-                          num_workers=4,  # We used num_workers = 4 and 4 gpus
+                          num_workers=1,  # We used num_workers = 4 and 4 gpus
                           pin_memory=args.pin_memory,
                           drop_last=True)
 val_loader = DataLoader(val_set,
                         batch_size=args.batch_size,
                         shuffle=False,  # already shuffled once, don't shuffle again every epoch
-                        num_workers=4,  # We used num_workers = 4 and 4 gpus
+                        num_workers=1,  # We used num_workers = 4 and 4 gpus
                         pin_memory=args.pin_memory,
                         drop_last=True)
 

@@ -13,4 +13,4 @@ python train.py cocodots_train_flexmm cocodots_val_flexmm --batch_size 32 --data
 
  nohup python train.py cocodots_train_flexmm cocodots_val_flexmm --batch_size 32 --data_root ./data/coco --name HGruVgg19PCA_globalPCA_6channels --model hgru_vgg19 --kernel_size 5 --timesteps 10 --loss_fn KL --annealing_step 16 --algo rbp --penalty --penalty_gamma 100 --epochs 20 --subset_train 1.0 --lr 0.01 --n_hidden_channels 6 &
 
-python train_original.py cocodots_train_flexmm cocodots_val_flexmm --batch_size 32 --data_root ./data/coco --name bynary_flexmm --model hgru --kernel_size 5 --timesteps 40 --loss_fn EDL --annealing_step 16 --algo rbp --penalty --penalty_gamma 100
+python train_original.py BN_bal_train BN_bal_val --batch_size 32 --data_root ./data/coco --name bynary_flexmm_check --model hgru --kernel_size 5 --timesteps 40 --loss_fn EDL --annealing_step 16 --algo rbp --penalty --penalty_gamma 100

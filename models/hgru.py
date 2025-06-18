@@ -228,7 +228,7 @@ class hGRU(nn.Module):
             # Clippa le probabilità estreme (0 e 1) del batch tra epsilon e 1-epsilon
             #target[mask] = torch.clamp(target[mask], epsilon, 1 - epsilon)
             #target[mask] = target[mask] / target[mask].sum(dim=1, keepdim=True)
-            loss = criterion(output, target)
+            loss = criterion(output, target )
 
         pen_type = 'l1'
         jv_penalty = torch.tensor([1]).float().cuda()
@@ -305,7 +305,7 @@ class hGRU_VGG19(nn.Module):
         self.num_channels = num_channels  # number of channels in hidden states
         self.n_in = n_in   # number of input channels
         self.n_classes = n_classes  # number of classes to predict
-
+        
         self.conv0 = nn.Conv2d(n_in, self.num_channels, kernel_size=7, padding=3)
         self.unit1 = hgruCell(self.num_channels+1, self.num_channels+1, filt_size, activ=self.activ)
         print("Training with filter size:", filt_size, "x", filt_size)
@@ -411,9 +411,6 @@ class hGRU_VGG19(nn.Module):
             print(f"Output dopo exp: {exp_output.detach().cpu().numpy()}")
             print(f"Target: {target[0].detach().cpu().numpy()} ")
             print(f"Loss: {loss.item()}")
-
-
-            check_null = False
 
 
         

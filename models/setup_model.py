@@ -15,7 +15,8 @@ def setup_model(**kwargs):
                      xavier_gain=kwargs.get('xavier_gain', 1.0),
                      num_channels=kwargs.get('n_hidden_channels', 25),
                      n_in=kwargs.get('n_in', 4),
-                     n_classes=kwargs.get('n_classes', 2))
+                     n_classes=kwargs.get('n_classes', 2)
+                     )
     elif kwargs.get('model') == 'hgru_vgg19':
         print("Init model hGRU_VGG19 ", kwargs.get('algo'), 'penalty: ', jacobian_penalty, 'steps: ', timesteps)
         model = hGRU_VGG19(timesteps=timesteps, filt_size=filter_size, num_iter=15, exp_name=kwargs.get('name'),
@@ -25,7 +26,8 @@ def setup_model(**kwargs):
                         xavier_gain=kwargs.get('xavier_gain', 1.0),
                         num_channels=kwargs.get('n_hidden_channels', 25),
                         n_in=kwargs.get('n_in', 4),
-                        n_classes=kwargs.get('n_classes', 2))
+                        n_classes=kwargs.get('n_classes', 2)
+                         )
     else:
         raise NotImplementedError('Model not implemented')
 

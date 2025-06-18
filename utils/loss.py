@@ -51,10 +51,11 @@ def get_edl_vars(logits, num_classes, evidence_fn=exp_evidence):
 
 
 class EDLLoss(nn.Module):
-    def __init__(self, num_classes=2, evidence_fn=exp_evidence):
+    def __init__(self, num_classes=2, evidence_fn=exp_evidence,KL_elimination = False):
         super(EDLLoss, self).__init__()
         self.num_classes = num_classes
         self.evidence_fn = evidence_fn
+        self.KL_elim = KL_elimination
 
     def KL(self, alpha):
         beta = torch.ones((1, self.num_classes), dtype=torch.float, device=alpha.device)
@@ -92,13 +93,11 @@ class EDLLoss(nn.Module):
         C = annealing_coef * self.KL(alp)
 
 
+        if self.KL_elim == True:
+            loss = (A+B)
+        else:
+            loss = (A+B) + C
 
-        #Modification: since the model tend to be uniform and this is not ideal for me I want to eliminate the C component
-        #original
-        #loss = (A+B) + C
-
-        #new
-        loss = (A+B)
         loss = loss.squeeze(dim=1)
         return loss, {'evidence': evidence, 'uncertainty': u, 'prob': prob}
 
