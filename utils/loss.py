@@ -70,8 +70,9 @@ class EDLLoss(nn.Module):
         return kl
 
     def forward(self, logits, target, global_step, annealing_step):
-    
-    	
+
+        #maybe debugging
+        target = target.long()
         target = F.one_hot(target, num_classes=self.num_classes)
 
         evidence, u, prob, alpha = get_edl_vars(logits, num_classes=self.num_classes, evidence_fn=self.evidence_fn)
@@ -90,7 +91,14 @@ class EDLLoss(nn.Module):
         alp = E*(1-target) +1
         C = annealing_coef * self.KL(alp)
 
-        loss = (A+B) + C
+
+
+        #Modification: since the model tend to be uniform and this is not ideal for me I want to eliminate the C component
+        #original
+        #loss = (A+B) + C
+
+        #new
+        loss = (A+B)
         loss = loss.squeeze(dim=1)
         return loss, {'evidence': evidence, 'uncertainty': u, 'prob': prob}
 

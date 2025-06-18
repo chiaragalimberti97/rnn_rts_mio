@@ -35,6 +35,13 @@ torch.backends.cudnn.benchmark = True
 global_step = 1
 args = parser.parse_args()
 
+
+#control that KL loss is used with and oly with HGru_VGG19
+if args.loss_fn == 'KL' and args.model != 'hgru_vgg19' :
+    raise ValueError("KL loss only with hGRU_VGG19")
+elif args.loss_fn != 'KL' and args.model == 'hgru_vgg19':
+    raise ValueError("HGru_VGG19 works only with KL loss")
+
 # Wandb
 if args.wandb:
     if args.wandb_project is None or args.wandb_entity is None:
@@ -77,6 +84,7 @@ del(args.data_root)
 # Note: training batches will be shuffled by the dataloader
 train_set = setup_dataset(args.dataset_str_train, data_root, subset=args.subset_train, shuffle=False, **vars(args))
 val_set = setup_dataset(args.dataset_str_val, data_root, subset=1.0, shuffle=True, **vars(args))
+print(f"Len train dataset: {len(train_set)}   Len validation dataset: {len(val_set)}")
 
 train_loader = DataLoader(train_set,
                           batch_size=args.batch_size,
@@ -90,6 +98,8 @@ val_loader = DataLoader(val_set,
                         num_workers=4,  # We used num_workers = 4 and 4 gpus
                         pin_memory=args.pin_memory,
                         drop_last=True)
+
+print(f"Len train loder: {len(train_loader)} Len val loader: {len(val_loader)}")
 
 # Model
 # =======================================================================================================================
@@ -139,7 +149,7 @@ lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 3, gamma=0.7)
 # ======================================================================================================================
 
 def validate(val_loader, model, criterion, epoch, logiters=None):
-    print('global_step at start validation {}'.format(global_step))
+    #print('global_step at start validation {}'.format(global_step))
     batch_timev = AverageMeter()  # how long to evaluate the batch
     lossesv = AverageMeter()  # loss
     accv = AverageMeter()  # accuracy
@@ -153,10 +163,13 @@ def validate(val_loader, model, criterion, epoch, logiters=None):
     u_failv = AverageMeter()  # EDL uncertainty for inaccurate predictions
 
     model.eval()
-
+    #debugging
+    k = 0
     end = time.time()
     with torch.no_grad():
         for i, batch in enumerate(val_loader):
+            #debugging
+            k += 1
             #target = batch["label"].long() #for EDL
             target = batch["label"] # for KL
             target = target.float()  
@@ -171,17 +184,22 @@ def validate(val_loader, model, criterion, epoch, logiters=None):
 
             batch_size = target.size(0)
             target = target[:].cpu().detach().numpy().astype('uint8')
+
             _, pred = output.data.topk(1, 1, True, True)
             pred = pred.squeeze().cpu().detach().numpy()
             report = classification_report(target, pred, output_dict=True, zero_division=0)
 
-            # Update average meters
-            lossesv.update(loss.data.item(), 1)
-            accv.update(report["accuracy"], batch_size)
-            sensitivityv.update(report["1"]["recall"], report["1"]["support"])
-            specificityv.update(report["0"]["recall"], report["0"]["support"])
-            f1scorev.update(report["1"]["f1-score"], batch_size)
-            n_posv.update(report["1"]["support"])
+            if args.loss_fn != 'KL':
+                # Update average meters
+                lossesv.update(loss.data.item(), 1)
+                accv.update(report["accuracy"], batch_size)
+                sensitivityv.update(report["1"]["recall"], report["1"]["support"])
+                specificityv.update(report["0"]["recall"], report["0"]["support"])
+                f1scorev.update(report["1"]["f1-score"], batch_size)
+                n_posv.update(report["1"]["support"])
+            else:
+                lossesv.update(loss.data.item(), 1)
+
 
             # Update EDL average meters
             if args.loss_fn == 'EDL':
@@ -201,12 +219,18 @@ def validate(val_loader, model, criterion, epoch, logiters=None):
 
             # Logging
             if (i % args.print_freq == 0 or (i == len(val_loader) - 1)) and logiters is None:
+                
 
                 print_string = 'Test: [{0}/{1}]\t Time: {batch_time.avg:.3f}\t Loss: {loss.val:.8f} ({loss.avg: .8f})\t' \
                                'acc: {acc.val:.8f} ({acc.avg:.5f}) sens: {sens.val:.5f} ({sens.avg:.5f}) spec: {spec.val:.5f}' \
                                '({spec.avg:.5f}) f1: {f1s.val:.5f} ({f1s.avg:.5f}) ' \
                     .format(i + 1, len(val_loader), batch_time=batch_timev, loss=lossesv, acc=accv,
                             sens=sensitivityv, spec=specificityv, f1s=f1scorev)
+                '''
+
+                print_string = 'Test: [{0}/{1}]\t Time: {batch_time.avg:.3f}\t Loss: {loss.val:.8f} ({loss.avg: .8f})\t' \
+                    .format(i + 1, len(val_loader), batch_time=batch_timev, loss=lossesv)
+                '''
                 print(print_string)
 
                 # Write to log file
@@ -221,13 +245,17 @@ def validate(val_loader, model, criterion, epoch, logiters=None):
 
         # --- Done all batches ---
 
+        #debugging
+        #print(f"K: {k}")
+
         # Collect metrics
         return_dict = {'val_acc': accv.avg,
                        'val_loss': lossesv.avg,
                        'val_n_pos': n_posv.avg,
                        'val_f1_score': f1scorev.avg,
                        'val_specificity': specificityv.avg,
-                       'val_sensitivity': sensitivityv.avg}
+                       'val_sensitivity': sensitivityv.avg
+                       }
         if args.loss_fn == 'EDL':
             return_dict.update({'val_ev_succ': ev_succv.avg, 'val_ev_fail': ev_failv.avg, 'val_u_succ': u_succv.avg,
                                 'val_u_fail': u_failv.avg})
@@ -254,6 +282,7 @@ def validate(val_loader, model, criterion, epoch, logiters=None):
 
 val_log_dict = defaultdict(list)
 train_log_dict = {'loss': [], 'acc': [], 'sensitivity': [], 'specificity': [], 'f1score': [], 'jvpen': [], 'num_pos': []}
+#train_log_dict = {'loss': [], 'acc': [], 'jvpen': []}
 if args.loss_fn == "EDL":
     train_log_dict.update({'ev_success': [], 'ev_fail': [], 'u_success': [], 'u_fail': []})
 
@@ -288,13 +317,15 @@ for epoch in range(args.start_epoch, args.epochs):
                                 annealing_step=args.annealing_step * len(train_loader))
 
         imgs = batch["image"].to(device)
-        #target = batch["label"].long() #this for EDL
-        target = batch["label"] # this for KL
+        if args.loss_fn != 'KL':
+            target = batch["label"].long() #this for EDL
+        else:
+            target = batch["label"] # this for KL
         target = target.float() 
         target = target.to(device)
         output_dict = model.forward(imgs, epoch, i, target, criterion)
         output = output_dict['output']
-
+        
         # Backward pass
         loss = output_dict['loss']
         loss = loss.mean()
@@ -303,6 +334,7 @@ for epoch in range(args.start_epoch, args.epochs):
         jv_penalty = jv_penalty.mean()
         train_log_dict['jvpen'].append(jv_penalty.item())
 
+        #not applied unless specififcally asked
         if jacobian_penalty:
             loss = loss + args.penalty_gamma * jv_penalty
 
@@ -317,11 +349,12 @@ for epoch in range(args.start_epoch, args.epochs):
 
         # Update average meters
         losses.update(loss.data.item(), 1)
-        acc.update(report["accuracy"], batch_size)
-        sensitivity.update(report["1"]["recall"], report["1"]["support"])
-        specificity.update(report["0"]["recall"], report["0"]["support"])
-        f1score.update(report["1"]["f1-score"], batch_size)  # [LG] is this the correct n?
-        n_pos.update(report["1"]["support"])
+        if args.loss_fn != 'KL':
+            acc.update(report["accuracy"], batch_size)
+            sensitivity.update(report["1"]["recall"], report["1"]["support"])
+            specificity.update(report["0"]["recall"], report["0"]["support"])
+            f1score.update(report["1"]["f1-score"], batch_size)  # [LG] is this the correct n?
+            n_pos.update(report["1"]["support"])
 
         # Update EDL average meters
         if args.loss_fn == 'EDL':
@@ -342,17 +375,19 @@ for epoch in range(args.start_epoch, args.epochs):
         end = time.perf_counter()
 
         # Logging
-        if exp_logging and i % 200 == 0:
+        if exp_logging and i % 1 == 0:
+            #print(f"exp_loggin {exp_logging}, i: {i}")
 
             val_res = validate(val_loader, model, criterion, epoch=epoch, logiters=3)
-            print('val accuracy', val_res['val_acc'])
-            print(val_res)
+           # print('val accuracy', val_res['val_acc'])
+            
             for k, v in val_res.items():
-                print(k,v)
+                #print(k,v)
                 val_log_dict[k].extend([v])
 
         if global_step % (args.print_freq) == 0:
             time_now = time.time()
+            
             print_string = 'Epoch: [{0}][{1}/{2}] t: {3} lr: {lr:g} Time: {batch_time.val:.3f} (itavg:{timeiteravg:.3f}) ' \
                            '({batch_time.avg:.3f})  Data: {data_time.val:.3f} ({data_time.avg:.3f}) ' \
                            'Loss: {loss.val:.8f} ({lossprint:.8f}) ({loss.avg:.8f})  acc: {acc.val:.5f} ' \
@@ -365,6 +400,16 @@ for epoch in range(args.start_epoch, args.epochs):
                         acc=acc, timeiteravg=mean(batch_time.history[-args.print_freq:]),
                         timeprint=time_now - time_since_last, sens=sensitivity, spec=specificity,
                         f1s=f1score, jpena=jv_penalty.item())
+            '''
+            print_string = 'Epoch: [{0}][{1}/{2}] t: {3} lr: {lr:g} Time: {batch_time.val:.3f} (itavg:{timeiteravg:.3f}) ' \
+                           '({batch_time.avg:.3f})  Data: {data_time.val:.3f} ({data_time.avg:.3f}) ' \
+                           'Loss: {loss.val:.8f} ({lossprint:.8f}) ({loss.avg:.8f}) '\
+                .format(epoch, i + 1, len(train_loader), args.timesteps, batch_time=batch_time,
+                        data_time=data_time, loss=losses,
+                        lossprint=mean(losses.history[-args.print_freq:]), lr=optimizer.param_groups[0]['lr'],
+                        timeiteravg=mean(batch_time.history[-args.print_freq:]),
+                        timeprint=time_now - time_since_last)
+            '''
             print(print_string)
             with open(results_folder + args.name + '.txt', 'a+') as log_file:
                 log_file.write(print_string + '\n')
@@ -418,14 +463,20 @@ for epoch in range(args.start_epoch, args.epochs):
         train_log_dict['u_success'].extend(u_succ.history)
         train_log_dict['u_fail'].extend(u_fail.history)
 
-    save_npz(epoch, train_log_dict, results_folder, 'train')
-    save_npz(epoch, val_log_dict, results_folder, 'val')
 
+    
     if (epoch + 1) % 1 == 0 or epoch == args.epochs - 1:
+        print("Epoch: {epoch}")
         if hasattr(model, 'timesteps'):
             model.timesteps = args.timesteps
         val_res = validate(val_loader, model, criterion, epoch=epoch)
+        for k, v in val_res.items():
+            val_log_dict[k].extend([v])
         save_checkpoint({
             'epoch': epoch,
             'state_dict': model.state_dict(),
-            'acc': val_res['val_acc']}, 'acc', results_folder)
+            'acc': val_res['val_acc']
+            }, 'acc', results_folder)
+
+    save_npz(epoch, train_log_dict, results_folder, 'train')
+    save_npz(epoch, val_log_dict, results_folder, 'val')

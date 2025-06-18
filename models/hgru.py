@@ -168,12 +168,7 @@ class hGRU(nn.Module):
         init.xavier_normal_(self.conv6.weight)
         init.constant_(self.conv6.bias, torch.log(torch.tensor((1 - 0.01) / 0.01)))
 
-        #for Vgg19
-        #vgg = vggmodels.vgg19(pretrained = True)
-        #self.features = nn.Sequential(*list(vgg.features.children())[:10])
-        #for param in self.features.parameters():
-        #    param.requires_grad = False
-        #self.num_channels = 128
+
 
         # For classification
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
@@ -187,15 +182,14 @@ class hGRU(nn.Module):
         output = self.avgpool(output)
         output = output.view(output.size(0), -1)
         output = self.fc(output)
-        output = F.log_softmax(output, dim=1)  # <--- for KLDivLoss
+        #output = F.log_softmax(output, dim=1)  # <--- for KLDivLoss
         return output
 
     def forward(self, x, epoch, itr, target=None, criterion=None,
                 testmode=False):
         x = self.conv0(x)
         x = torch.pow(x, 2)
-        #if vgg19 you need to change the num_channels to 128
-        #x = self.features(x) 
+
         internal_state = torch.zeros_like(x, requires_grad=False)
         internal_state = torch.nn.init.xavier_normal_(internal_state, gain=self.xavier_gain)
 
@@ -227,8 +221,13 @@ class hGRU(nn.Module):
 
 
         if not testmode:
-            target = target.unsqueeze(1)  # for KL
-            target = torch.cat([target, 1 - target], dim=1)  # for KL
+            #target = target.unsqueeze(1)  # for KL
+            #target = torch.cat([target, 1 - target], dim=1)  # for KL
+            #epsilon = 1e-7
+            #mask = (target[:, 0] == 0) | (target[:, 0] == 1)
+            # Clippa le probabilità estreme (0 e 1) del batch tra epsilon e 1-epsilon
+            #target[mask] = torch.clamp(target[mask], epsilon, 1 - epsilon)
+            #target[mask] = target[mask] / target[mask].sum(dim=1, keepdim=True)
             loss = criterion(output, target)
 
         pen_type = 'l1'
@@ -308,23 +307,24 @@ class hGRU_VGG19(nn.Module):
         self.n_classes = n_classes  # number of classes to predict
 
         self.conv0 = nn.Conv2d(n_in, self.num_channels, kernel_size=7, padding=3)
-        self.unit1 = hgruCell(self.num_channels, self.num_channels, filt_size, activ=self.activ)
+        self.unit1 = hgruCell(self.num_channels+1, self.num_channels+1, filt_size, activ=self.activ)
         print("Training with filter size:", filt_size, "x", filt_size)
         self.bn = nn.BatchNorm2d(2, eps=1e-03)
-        self.conv6 = nn.Conv2d(self.num_channels, self.n_classes, kernel_size=1)
+        self.conv6 = nn.Conv2d(self.num_channels+1, self.n_classes, kernel_size=1)
         init.xavier_normal_(self.conv6.weight)
         init.constant_(self.conv6.bias, torch.log(torch.tensor((1 - 0.01) / 0.01)))
         
         # VGG19 
         self.vgg19 = vgg19(pretrained=True).features[:2]  # solo il primo Conv2d + ReLU
         for param in self.vgg19.parameters():
-            param.requires_grad = False  # congelalo se non vuoi backprop
+            param.requires_grad = False  
 
         # PCA
-        self.pca = PCA(n_components=self.num_channels)  # es: 25 componenti
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.pca_matrix = torch.load(f'pca_projection_matrix_{self.num_channels}_channels.pt')  # (n_components, in_features)
+        self.pca_matrix = self.pca_matrix.to(device=self.device)  # Assicurati sia sulla stessa device
         
         
-
         # For classification
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(self.n_classes, self.n_classes)
@@ -332,6 +332,8 @@ class hGRU_VGG19(nn.Module):
         init.constant_(self.fc.bias, 0)
 
     def readout(self, x, x_dots):
+        
+        #x = torch.cat([x, x_dots], dim=1)        
         output = self.conv6(x)
         output = self.bn(output)
         output = self.avgpool(output)
@@ -342,34 +344,29 @@ class hGRU_VGG19(nn.Module):
 
     def forward(self, x, epoch, itr, target=None, criterion=None,
                 testmode=False):
+        # x shape B C H W
         
-        x_rgb = x[:, :, :, :3]      
-        x_dots = x[:, :, :, 3]    
-        x = x_rgb 
+        x_rgb = x[:, :3, :, :]      
+        x_dots = x[:, 3, :, :]    
+        x_dots = x_dots.unsqueeze(1)        
 
-        # vgg19 plus pca
-        with torch.no_grad():
-            x = self.vgg19(x)  # shape: [B, C, H, W] (es: [1, 64, 256, 256])
+        
+        x = self.vgg19(x_rgb)        
 
-        # Applica PCA **per pixel**
         B, C, H, W = x.shape
-        x_flat = x.permute(0, 2, 3, 1).reshape(-1, C)  # shape: [B*H*W, C]
+        x_flat = x.permute(0, 2, 3, 1).reshape(B * H * W, C)  # (B*H*W, C)
+        
+        # Applica PCA pre-fittata in torch
+        x_proj = torch.matmul(x_flat, self.pca_matrix.T)     # (B*H*W, 25)
 
-        # Fit solo se non ancora fatto (evita su test mode o riutilizza fit)
-        if not hasattr(self, 'pca_fitted'):
-            _ = self.pca.fit(x_flat.pcu().numpy())
-            self.pca_fitted = True
+        # Reshape a (B, 25, H, W)
+        x = x_proj.reshape(B, H, W, -1).permute(0, 3, 1, 2)   # (B, 25, H, W)
 
-        x_pca = self.pca.transform(x_flat.cpu().numpy())  # shape: [B*H*W, num_channels]
-        x_pca = torch.tensor(x_pca, device=x.device).reshape(B, H, W, self.num_channels)
-        x = x_pca.permute(0, 3, 1, 2)  # torna a [B, num_channels, H, W]
-
-
-
-
+        x = torch.cat([x, x_dots], dim=1)  
+                
         internal_state = torch.zeros_like(x, requires_grad=False)
         internal_state = torch.nn.init.xavier_normal_(internal_state, gain=self.xavier_gain)
-
+        
         states = []
         if self.grad_method == 'rbp':
             with torch.no_grad():
@@ -393,19 +390,38 @@ class hGRU_VGG19(nn.Module):
                     last_state = internal_state
             if testmode: states.append(internal_state)
         # internal_state = torch.tanh(internal_state)
-        output = self.readout(internal_state)           
         
+        output = self.readout(internal_state,x_dots)           
+        num_zero_targets = 0
 
 
         if not testmode:
             target = target.unsqueeze(1)  # for KL
             target = torch.cat([target, 1 - target], dim=1)  # for KL
-            loss = criterion(output, target)
+            epsilon = 1e-3
+            # Clippa tutto il batch tra epsilon e 1 - epsilon
+            target = torch.clamp(target, epsilon, 1 - epsilon)
+            # Normalizza per sicurezza (probabilità sommano a 1)
+            target = target / target.sum(dim=1, keepdim=True)
 
+           
+            loss = criterion(output, target)
+            #debug
+            exp_output = torch.exp(output[0])
+            print(f"Output dopo exp: {exp_output.detach().cpu().numpy()}")
+            print(f"Target: {target[0].detach().cpu().numpy()} ")
+            print(f"Loss: {loss.item()}")
+
+
+            check_null = False
+
+
+        
         pen_type = 'l1'
         jv_penalty = torch.tensor([1]).float().cuda()
         mu = 0.9
         double_neg = False
+        
         if self.training and self.jacobian_penalty:
             if pen_type == 'l1':
                 norm_1_vect = torch.ones_like(last_state)
@@ -429,7 +445,7 @@ class hGRU_VGG19(nn.Module):
                 if torch.isnan(jv_penalty).sum() > 0:
                     raise ValueError('Nan encountered in penalty')
         if testmode: return {'output': output, 'states': states}  # [LG] not returning loss when testmode=True cause we won't always have target
-
+        
         return_dict = {}
         if type(loss) == tuple:
             assert (type(loss[1]) == dict)
@@ -441,14 +457,3 @@ class hGRU_VGG19(nn.Module):
 
 
 
-# FUNCTION FOR VGG19 EXTRACTION
-#==================================================================
-
-# Get deep features from <model> as applied to <im_torch>
-def get_conv2d_features(model, im_torch):
-    deep_features = []
-    for i in range(1, len(model) + 1):
-        if isinstance(model[:i][-1], nn.Conv2d):
-            deep_features.append(model[:i](im_torch).detach().numpy()[0])
-
-    return np.array(deep_features, dtype=object)

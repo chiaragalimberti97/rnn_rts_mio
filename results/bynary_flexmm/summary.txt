@@ -1,0 +1,1 @@
+trained on dot_dataset_binary which was probably unbalanced so taht the results were showing very low mean f1 score very low sensitivuty almost perfect specifity and average (0.6) ACCURACY. tHE PROCESS WAS TERMINATED BEFORE THE ENDING OF THE 27 EPOCHS DUE TO 0 progress

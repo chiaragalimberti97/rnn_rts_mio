@@ -1,0 +1,1 @@
+Here the model was trained using a pca fitted over every batch, the results were abissimal 

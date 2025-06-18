@@ -12,81 +12,68 @@ import seaborn as sns
 
 
 
-
-
-
-
-
 # LOSS PLOT (must be adjusted to also plot validation loss)
 # ======================================================================================================================
 
-def loss_plot(model_name):
-    
+def loss_plot(model_name, num_epochs):
+    results_folder = f'results/{model_name}/'
 
-    results_folder = 'results/{0}/'.format(model_name)
-
-
-
-    # Raccogli tutte le training e validation loss
-    train_losses = []
-    val_losses = []
-    NUM_EPOCHS = 10
-    output_image = os.path.join(results_folder, "loss_curve.png")
-
-    data_train = np.load(f'{results_folder}/train.npz')
-    data_val = np.load(f'{results_folder}/val.npz')
+    # Carica le loss salvate
+    data_train = np.load(os.path.join(results_folder, 'train.npz'))
+    data_val = np.load(os.path.join(results_folder, 'val.npz'))
+    print("Chiavi nel dizionario val.npz:", list(data_val.keys()))
 
 
     key = "loss"
+    print("Available keys in val.npz:", list(data_val.keys()))
+
+    # Training loss: array di loss per step, calcola media per epoca
     train_losses = data_train[key]
-    loss = []
-    temp_loss = 0
-    val_losses = data_val[key]
-    print(train_losses.shape)
-    for i in range(50390):
-        temp_loss += train_losses[i]
-        if i % 5039 == 0 and i > 0:
-            temp_loss = temp_loss / 5390
-            loss.append(temp_loss)
-            temp_loss = 0
-            
-    # === Plot e salvataggio ===
+    total_steps_train = len(train_losses)
+    steps_per_epoch_train = total_steps_train // num_epochs
+    print(f"📊 Totale step: {total_steps_train}, Epoche: {num_epochs}, Step/epoca: {steps_per_epoch_train}")
+
+    train_loss_per_epoch = []
+    for epoch in range(num_epochs):
+        start = epoch * steps_per_epoch_train
+        end = (epoch + 1) * steps_per_epoch_train
+        epoch_loss_train = train_losses[start:end].mean()
+        train_loss_per_epoch.append(epoch_loss_train)
+
+    # Validation loss (già media per epoca)
+    val_losses = data_val["val_loss"]
+    print(len(val_losses))
+
+    total_steps_val = len(val_losses)
+    steps_per_epoch_val = total_steps_val // num_epochs
+    print(f"📊 Totale step: {total_steps_val}, Epoche: {num_epochs}, Step/epoca: {steps_per_epoch_val}")
+
+    val_loss_per_epoch = []
+    for epoch in range(num_epochs):
+        start = epoch * steps_per_epoch_val
+        end = (epoch + 1) * steps_per_epoch_val
+        epoch_loss_val = val_losses[start:end].mean()
+        val_loss_per_epoch.append(epoch_loss_val)
+
+
+    # Plotting
     plt.figure(figsize=(10, 6))
-    plt.plot(loss, label='Training Loss', marker='o')
+    plt.plot(range(1, num_epochs + 1), train_loss_per_epoch, label='Training Loss', marker='o')
+    plt.plot(range(1, num_epochs + 1), val_losses, label='Validation Loss', marker='x')
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
-    plt.title(f"Training Loss -")
+    plt.title("Training and Validation Loss")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
 
-    # Salva il grafico come immagine PNG
-
+    output_image = os.path.join(results_folder, "loss_curve.png")
     plt.savefig(output_image)
     print(f"✅ Grafico salvato in: {output_image}")
-
-    # Mostra il grafico
     plt.show()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # PLOTTING OF SEGMENTATION MAP FINALS AND TEMPORAL  (could be reduced to only a parametric dynamic with yes if only last step and no for each step and also adding the original seg map could be nice)
 # ======================================================================================================================
-
-
 
 def seg_map(model,dataset,x,index):
 
@@ -94,21 +81,20 @@ def seg_map(model,dataset,x,index):
 
     torch.manual_seed(42)
     np.random.seed(42)
-    img_index = index #20000
+    img_index = index 
     sample = dataset[img_index]
     img = sample['image']
-
-
 
     fix_x = x[0]
     fix_y = x[1]
 
     step_size = 5
     c, h, w = img.shape
+
     # Costruisci griglia
     grid = np.zeros((h, w))
     grid[::step_size, ::step_size] = 1
-    cue_y, cue_x = np.where(grid == 1)  # coordinate dei punti della griglia
+    cue_y, cue_x = np.where(grid == 1)  
 
     # Prepara input ripetuto per ogni cue
     inputs = img[:3].unsqueeze(0).repeat(len(cue_x), 1, 1, 1).to(device)  # img senza canale dot
@@ -121,15 +107,16 @@ def seg_map(model,dataset,x,index):
     # Split in batch
     batch_size = 1
     batches = torch.split(inputs, batch_size)
+    dots_batches = torch.split(dots, batch_size)
 
     model.eval()
     values_list = []
     time_list = []
 
     with torch.no_grad():
-        for batch in batches:
+        for batch, dots_batch in zip(batches,dots_batches):
             output_dict = model(batch, 0, 0, testmode=True)
-            scalars = create_dynamic(output_dict, model, index, fix_x)
+            scalars = create_dynamic(output_dict, model, index, fix_x, dots_batch)
             
             val = output_dict['output'][:,0]  # lista lunghezza T
             if val.dim() > 1:
@@ -202,10 +189,7 @@ def seg_map(model,dataset,x,index):
         plt.savefig(save_path)
         print(f"✅ Salvata immagine timestep {t} in: {save_path}")
         plt.close()
-
-
-
-def create_dynamic(output_dic, model,index,fix_x):
+def create_dynamic(output_dic, model,index,fix_x, x_dots):
     states = output_dic.get('states', None)
     if states is None:
         print("No states found in output_dic.")
@@ -215,28 +199,17 @@ def create_dynamic(output_dic, model,index,fix_x):
     values_over_time = []
     with torch.no_grad():
         for t, state in enumerate(states):
-            readout_logits = model.readout(state)  # shape: (batch_size, n_classes)
+            if model_name == 'hgru' :
+                readout_logits = model.readout(state)  # shape: (batch_size, n_classes)
+            else : 
+                readout_logits = model.readout(state, x_dots)  # shape: (batch_size, n_classes)
             readout_probs = torch.exp(readout_logits)
             val = readout_probs[:, 0]  # tensore (batch_size,)
             values_over_time.append(val.cpu().numpy())  # salva il vettore intero per timestep
     return np.array(values_over_time)  # shape (timesteps, batch_size)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 # DATASET AND MODEL LOADING
 # ======================================================================================================================
-
 
 def set_data(model_name, checkpointstr, datastr, data_root):
 
@@ -247,7 +220,7 @@ def set_data(model_name, checkpointstr, datastr, data_root):
         train_opts = json.load(f)  # get hyperparameters the model was trained with
 
     model = setup_model(**train_opts)
-    checkpoint = torch.load(f'results/mymodel/saved_models/{checkpointstr}')
+    checkpoint = torch.load(f'results/{model_name}/saved_models/{checkpointstr}')
     state_dict = checkpoint['state_dict']
 
     if train_opts['parallel']:
@@ -257,30 +230,20 @@ def set_data(model_name, checkpointstr, datastr, data_root):
     model = model.eval()
     model = model.to(device)
     # Setting up dataset
-    dataset = setup_dataset(datastr, data_root, subset=1, shuffle=False)
+    kwargs = {
+    'base_size': 150,
+    }
+
+    dataset = setup_dataset(datastr, data_root, subset=1, shuffle=False, **kwargs)
+
     return model,dataset
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 # DATASET DISTRIBUTION CHECK ----> LABELS AND DOTS
 # ======================================================================================================================
 
 def check_labels(dataset):
     # Crea i bordi dei bin: [0.0, 0.1, ..., 1.0]
-    bin_size = 0.10
+    bin_size = 0.01
     bins = np.arange(0, 1.0 + bin_size, bin_size)
     bin_labels = [f"{round(bins[i], 1)}–{round(bins[i+1], 1)}" for i in range(len(bins) - 1)]
     bin_counts = [0 for _ in range(len(bins) - 1)]
@@ -309,13 +272,6 @@ def check_labels(dataset):
     plt.grid(True, axis='y', linestyle='--', alpha=0.7)
     plt.tight_layout()
     plt.show()
-
-
-
-
-
-
-
 def check_dots(dataset,index):
 
     torch.manual_seed(42)
@@ -375,62 +331,37 @@ def check_dots(dataset,index):
     plt.tight_layout()
     plt.show()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # MAIN
 # ======================================================================================================================
 
 
 if __name__ == "__main__":
 
-    index = 20000
-    model_name = "Model1"
-    checkpoint = "model_acc_4591_epoch_09_checkpoint.pth.tar"
+    index = 1000
+    #model_name = "HGRU_VGG19"
+    #model_name = "test_model"
+    #model_name = "balanced_bynary_flexmm"
+    model_name = "bynary_flexmm"
+    checkpoint = "model_acc_6733_epoch_26_checkpoint.pth.tar"
     data_str ='cocodots_val_flexmm'
     data_root = "./data/coco"
+    num_epochs = 26
 
     check = False
+    loss_plot(model_name, num_epochs )
+   
 
 
 
     if check == True:
         
-        loss_plot(model_name)
+        loss_plot(model_name, num_epochs )
         model, dataset = set_data(model_name, checkpoint, data_str,data_root)
         
         check_dots(dataset,index)
         
         fixation_points = [[10,10], [10,75] , [10, 130] , [75,10], [75,75], [75,130], [130,10], [130,75] ,[130,130]]
-        fixation_points =[[75,75]]
+        #fixation_points =[[75,75]]
         for x in fixation_points:
             seg_map(model,dataset,x,index)
     
